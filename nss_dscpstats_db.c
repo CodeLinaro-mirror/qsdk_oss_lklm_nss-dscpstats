@@ -23,6 +23,8 @@
 #include <linux/netdevice.h>
 
 #include "nss_dscpstats.h"
+#include "nss_dscpstats_nl.h"
+#include <ecm_classifier_dscp_stats_public.h>
 
 struct nss_dscpstats nss_dscpstats_ctx;
 uint32_t num_clients;
@@ -133,6 +135,7 @@ static struct nss_dscpstats_wanif *nss_dscpstats_db_wan_node_get(uint8_t *dev_na
 
 	return NULL;
 }
+
 /**
  * @brief function to add a new dscp_node to table
  *
@@ -144,13 +147,17 @@ static struct nss_dscpstats_wanif *nss_dscpstats_db_wan_node_get(uint8_t *dev_na
  */
 enum nss_dscpstats_ret nss_dscpstats_db_enable_dscp(uint64_t dscp_mask, uint8_t dev_name[])
 {
+	struct ecm_classifier_dscp_stats_registrant r;
 	struct nss_dscpstats_wanif *wan_if_node;
 	struct nss_dscpstats_wanif *new_node;
+	bool register_cb;
 
 	if (!dscp_mask) {
 		nss_dscpstats_warn("Error: Invalid value of DSCP MASK\n");
 		return DSCP_STATS_RET_INVALID_VALUE;
 	}
+
+	register_cb = hlist_empty(&nss_dscpstats_ctx.wan_list);
 
 	spin_lock(&nss_dscpstats_ctx.lock);
 	hlist_for_each_entry(wan_if_node, &nss_dscpstats_ctx.wan_list, wan_node) {
@@ -174,6 +181,15 @@ enum nss_dscpstats_ret nss_dscpstats_db_enable_dscp(uint64_t dscp_mask, uint8_t 
 	hlist_add_head(&new_node->wan_node, &nss_dscpstats_ctx.wan_list);
 	spin_unlock(&nss_dscpstats_ctx.lock);
 
+	if (register_cb) {
+		/*
+		 * register callback
+		 */
+		r.cb = nss_dscpstats_db_stats_process;
+		r.this_module = THIS_MODULE;
+		ecm_classifier_dscp_stats_register(&r);
+	}
+
 	return DSCP_STATS_RET_SUCCESS;
 }
 
@@ -187,6 +203,7 @@ enum nss_dscpstats_ret nss_dscpstats_db_enable_dscp(uint64_t dscp_mask, uint8_t 
 enum nss_dscpstats_ret nss_dscpstats_db_disable_dscp(uint64_t dscp_mask, uint8_t dev_name[])
 {
 	struct nss_dscpstats_wanif *wan_if_node = NULL;
+	struct ecm_classifier_dscp_stats_registrant r;
 	struct nss_dscpstats_mac_node *current_node;
 	struct nss_dscpstats_dscp_node *dscp_node;
 	struct hlist_node *tmp_dscp_node;
@@ -246,6 +263,15 @@ enum nss_dscpstats_ret nss_dscpstats_db_disable_dscp(uint64_t dscp_mask, uint8_t
 		}
 	}
 	spin_unlock(&nss_dscpstats_ctx.lock);
+
+	if (hlist_empty(&nss_dscpstats_ctx.wan_list)) {
+		/*
+		 * unregister callback
+		 */
+		r.cb = nss_dscpstats_db_stats_process;
+		r.this_module = THIS_MODULE;
+		ecm_classifier_dscp_stats_unregister(&r);
+	}
 
 	return DSCP_STATS_RET_SUCCESS;
 }
@@ -448,8 +474,82 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 }
 
 /**
+ * nss_dscpstats_db_stats_process()
+ *	Process the dscp and bytes to store.
+ */
+void nss_dscpstats_db_stats_process(struct net_device *from_dev, struct net_device *to_dev, uint8_t *smac,
+		uint8_t *dmac, uint8_t dscp_marked, uint8_t flow_mark, uint8_t reply_mark, uint8_t flow_dscp,
+		uint8_t reply_dscp, uint32_t tx_bytes, uint32_t rx_bytes, bool is_ipv6)
+{
+	struct nss_dscpstats_wanif *wan_if_node;
+	struct net_device *dev;
+	uint64_t real_smac = 0;
+	uint8_t real_tx_dscp, real_rx_dscp;
+	uint32_t real_tx_bytes = 0, real_rx_bytes = 0;
+
+	/*
+	 * skip MAP-T outer rule, for MAP-T inner rule stats will be considered
+	 * since we cant get smac of LAN client from outer rule.
+	 */
+
+	if ((from_dev->priv_flags_ext & IFF_EXT_MAPT) && is_ipv6) {
+		return;
+	}
+
+	spin_lock(&nss_dscpstats_ctx.lock);
+	hlist_for_each_entry(wan_if_node, &nss_dscpstats_ctx.wan_list, wan_node) {
+		if (!strncmp(to_dev->name, wan_if_node->dev_name, 16)) {
+			dev = from_dev;
+			memcpy(&real_smac, smac, 6);
+
+			real_tx_dscp = flow_dscp;
+			real_rx_dscp = reply_dscp;
+
+			if (dscp_marked) {
+				real_tx_dscp = flow_mark;
+			}
+
+			if (wan_if_node->dscp_mask & (1ULL << real_tx_dscp)) {
+				real_tx_bytes = tx_bytes;
+			}
+
+			if (wan_if_node->dscp_mask & (1ULL << real_rx_dscp)) {
+				real_rx_bytes = rx_bytes;
+			}
+			break;
+		} else if (!strncmp(from_dev->name, wan_if_node->dev_name, 16)) {
+			dev = to_dev;
+			memcpy(&real_smac, dmac, 6);
+
+			real_tx_dscp = reply_dscp;
+			real_rx_dscp = flow_dscp;
+
+			if (dscp_marked) {
+				real_rx_dscp = flow_mark;
+			}
+
+			if (wan_if_node->dscp_mask & (1ULL << real_tx_dscp)) {
+				real_tx_bytes = rx_bytes;
+			}
+
+			if (wan_if_node->dscp_mask & (1ULL << real_rx_dscp)) {
+				real_rx_bytes = tx_bytes;
+			}
+			break;
+		}
+	}
+	spin_unlock(&nss_dscpstats_ctx.lock);
+
+	if (real_tx_bytes || real_rx_bytes) {
+		nss_dscpstats_db_count_store(real_tx_dscp, real_rx_dscp, real_smac, real_tx_bytes, real_rx_bytes);
+	}
+
+
+}
+
+/**
  * nss_dscpstats_init_table()
- *      function to initialize hashtable
+ *	function to initialize hashtable
  */
 uint32_t nss_dscpstats_db_init_table(void)
 {

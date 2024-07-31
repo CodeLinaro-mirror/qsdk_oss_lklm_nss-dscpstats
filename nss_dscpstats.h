@@ -122,5 +122,7 @@ enum nss_dscpstats_ret nss_dscpstats_db_enable_dscp(uint64_t dscp_mask, uint8_t 
 void nss_dscpstats_db_reset(void);
 uint32_t nss_dscpstats_db_init_table(void);
 void nss_dscpstats_db_free_table(void);
-
+void nss_dscpstats_db_stats_process(struct net_device *from_dev, struct net_device *to_dev, uint8_t *smac,
+		uint8_t *dmac, uint8_t dscp_marked, uint8_t flow_mark, uint8_t reply_mark, uint8_t flow_dscp,
+		uint8_t reply_dscp, uint32_t tx_bytes, uint32_t rx_bytes, bool is_ipv6);
 #endif /* __NSSSTATDSCP__H */

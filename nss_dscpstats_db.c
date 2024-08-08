@@ -32,11 +32,8 @@ uint32_t num_clients;
 static atomic_t current_clients_count;
 
 /**
- * @brief hash function to generate the index for the hash table
- *
- * @mac_address: mac_address of the client
- *
- * @return combined 48bit value of mac_address
+ * nss_dscpstats_db_generate_hash_index()
+ *	hash function to generate the index for the hash table
  */
 static unsigned int nss_dscpstats_db_generate_hash_index(uint64_t mac_address)
 {
@@ -44,10 +41,8 @@ static unsigned int nss_dscpstats_db_generate_hash_index(uint64_t mac_address)
 }
 
 /**
- * @brief function to delete dscp_node from table
- *
- * @dscp_node: address of the dscp node to be deleted
- *
+ * nss_dscpstats_db_delete_dscp_node()
+ *	delete dscp_node from table
  */
 static void nss_dscpstats_db_delete_dscp_node(struct nss_dscpstats_dscp_node *node)
 {
@@ -56,13 +51,8 @@ static void nss_dscpstats_db_delete_dscp_node(struct nss_dscpstats_dscp_node *no
 }
 
 /**
- * @brief function to add a new dscp node to the mac node
- *
- * @head: head of the dscp list
- *
- * @dscp: value of the node to be added
- *
- * @return success if node is added to the list else return error
+ * nss_dscpstats_db_create_dscp_node()
+ *	add a new dscp node to the mac node
  */
 static struct nss_dscpstats_dscp_node *nss_dscpstats_db_create_dscp_node(uint8_t dscp_value)
 {
@@ -79,21 +69,20 @@ static struct nss_dscpstats_dscp_node *nss_dscpstats_db_create_dscp_node(uint8_t
 }
 
 /**
- * @brief function to delete a mac node and all of its dscp nodes
- *
- * @mac_address: mac_address of the node to be deleted
+ * nss_dscpstats_db_remove_mac_node()
+ *	delete a mac node and all of its dscp nodes
  */
-static void nss_dscpstats_db_remove_mac_node(struct nss_dscpstats_mac_node *current_node)
+static void nss_dscpstats_db_remove_mac_node(struct nss_dscpstats_mac_node *mac_node)
 {
 	struct nss_dscpstats_dscp_node *dscp_node;
 	struct hlist_node *tmp;
 
-	hlist_for_each_entry_safe(dscp_node, tmp, &current_node->dscp_list, dscp_node) {
+	hlist_for_each_entry_safe(dscp_node, tmp, &mac_node->dscp_list, dscp_node) {
 		nss_dscpstats_db_delete_dscp_node(dscp_node);
 	}
 
-	hlist_del(&current_node->mac_node);
-	kfree(current_node);
+	hlist_del(&mac_node->mac_node);
+	kfree(mac_node);
 	atomic_dec(&current_clients_count);
 }
 
@@ -108,11 +97,8 @@ static void nss_dscpstats_db_delete_wan_node(struct nss_dscpstats_wanif *wan_if_
 }
 
 /**
- * @brief function to create a new mac node
- *
- * @mac_address: mac_address of the mac node to be created
- *
- * @return mac node on successful creation else return NULL
+ * nss_dscpstats_db_create_mac_node()
+ *	create a new mac node
  */
 static struct nss_dscpstats_mac_node *nss_dscpstats_db_create_mac_node(uint64_t mac)
 {
@@ -132,7 +118,7 @@ static struct nss_dscpstats_mac_node *nss_dscpstats_db_create_mac_node(uint64_t 
 
 /**
  * nss_dscpstats_db_wan_node_get()
- *	search for dev name exists in WAN list.
+ *	search for dev name exists in WAN list, this is called under spinlock
  */
 static struct nss_dscpstats_wanif *nss_dscpstats_db_wan_node_get(uint8_t *dev_name)
 {
@@ -148,7 +134,7 @@ static struct nss_dscpstats_wanif *nss_dscpstats_db_wan_node_get(uint8_t *dev_na
 }
 
 /**
- * nss_dscpstats_db_wan_node_get()
+ * nss_dscpstats_db_wan_node_remove_all()
  *	Remove all the wan nodes from list
  */
 static void nss_dscpstats_db_wan_node_remove_all(void)
@@ -164,13 +150,8 @@ static void nss_dscpstats_db_wan_node_remove_all(void)
 }
 
 /**
- * @brief function to add a new dscp_node to table
- *
- * @mac_address: mac_address of the node to be created
- *
- * @dscp: dscp of the node to be create
- *
- * @return success code if node is added to table else return error code
+ * nss_dscpstats_db_enable_dscp()
+ *	enable dscp values for a interface
  */
 enum nss_dscpstats_ret nss_dscpstats_db_enable_dscp(uint64_t dscp_mask, uint8_t dev_name[])
 {
@@ -187,12 +168,10 @@ enum nss_dscpstats_ret nss_dscpstats_db_enable_dscp(uint64_t dscp_mask, uint8_t 
 	register_cb = hlist_empty(&nss_dscpstats_ctx.wan_list);
 
 	spin_lock(&nss_dscpstats_ctx.lock);
-	hlist_for_each_entry(wan_if_node, &nss_dscpstats_ctx.wan_list, wan_node) {
-		if (!strncmp(dev_name, wan_if_node->dev_name, 16)) {
-			wan_if_node->dscp_mask = wan_if_node->dscp_mask | dscp_mask;
-			spin_unlock(&nss_dscpstats_ctx.lock);
-			return DSCP_STATS_RET_SUCCESS;
-		}
+	if (nss_dscpstats_db_wan_node_get(wan_if_node->dev_name) != NULL) {
+		wan_if_node->dscp_mask = wan_if_node->dscp_mask | dscp_mask;
+		spin_unlock(&nss_dscpstats_ctx.lock);
+		return DSCP_STATS_RET_SUCCESS;
 	}
 	spin_unlock(&nss_dscpstats_ctx.lock);
 
@@ -221,17 +200,14 @@ enum nss_dscpstats_ret nss_dscpstats_db_enable_dscp(uint64_t dscp_mask, uint8_t 
 }
 
 /**
- * @brief function to disable dscp
- *
- * @dscp: dscp mask based on dscp node to be deleted
- *
- * @return success code if node is deleted from table else return error code
+ * nss_dscpstats_db_disable_dscp()
+ *	disable dscp values for a interface
  */
 enum nss_dscpstats_ret nss_dscpstats_db_disable_dscp(uint64_t dscp_mask, uint8_t dev_name[])
 {
 	struct nss_dscpstats_wanif *wan_if_node = NULL;
 	struct ecm_classifier_dscp_stats_registrant r;
-	struct nss_dscpstats_mac_node *current_node;
+	struct nss_dscpstats_mac_node *mac_node;
 	struct nss_dscpstats_dscp_node *dscp_node;
 	struct hlist_node *tmp_dscp_node;
 	struct hlist_node *tmp_mac_node;
@@ -270,11 +246,11 @@ enum nss_dscpstats_ret nss_dscpstats_db_disable_dscp(uint64_t dscp_mask, uint8_t
 	dscp_mask = dscp_mask & (~tmp_mask);
 
 	for (index = 0; index < nss_dscpstats_ctx.hash_size; index++) {
-		hlist_for_each_entry_safe(current_node, tmp_mac_node, &nss_dscpstats_ctx.mac_hash_table[index], mac_node) {
+		hlist_for_each_entry_safe(mac_node, tmp_mac_node, &nss_dscpstats_ctx.mac_hash_table[index], mac_node) {
 			dscp_value = 0;
 			while (dscp_value < 64) {
 				if (dscp_mask & ((uint64_t)1 << dscp_value)) {
-					hlist_for_each_entry_safe(dscp_node, tmp_dscp_node, &current_node->dscp_list, dscp_node) {
+					hlist_for_each_entry_safe(dscp_node, tmp_dscp_node, &mac_node->dscp_list, dscp_node) {
 						if (dscp_node->dscp == dscp_value) {
 							nss_dscpstats_db_delete_dscp_node(dscp_node);
 						}
@@ -283,8 +259,8 @@ enum nss_dscpstats_ret nss_dscpstats_db_disable_dscp(uint64_t dscp_mask, uint8_t
 				dscp_value += 1;
 			}
 
-			if (hlist_empty(&current_node->dscp_list)) {
-				nss_dscpstats_db_remove_mac_node(current_node);
+			if (hlist_empty(&mac_node->dscp_list)) {
+				nss_dscpstats_db_remove_mac_node(mac_node);
 			}
 		}
 	}
@@ -303,43 +279,41 @@ enum nss_dscpstats_ret nss_dscpstats_db_disable_dscp(uint64_t dscp_mask, uint8_t
 }
 
 /**
- * @brief function to reset the table
+ * nss_dscpstats_db_reset()
+ *	function to reset the table by deleting all mac and dscp nodes
  */
 void nss_dscpstats_db_reset(void)
 {
-	struct nss_dscpstats_mac_node *current_node;
+	struct nss_dscpstats_mac_node *mac_node;
 	struct hlist_node *tmp;
 	uint16_t index;
 
 	spin_lock(&nss_dscpstats_ctx.lock);
 	for (index = 0; index < nss_dscpstats_ctx.hash_size; index++) {
-		hlist_for_each_entry_safe(current_node, tmp, &nss_dscpstats_ctx.mac_hash_table[index], mac_node) {
-			nss_dscpstats_db_remove_mac_node(current_node);
+		hlist_for_each_entry_safe(mac_node, tmp, &nss_dscpstats_ctx.mac_hash_table[index], mac_node) {
+			nss_dscpstats_db_remove_mac_node(mac_node);
 		}
 	}
 	spin_unlock(&nss_dscpstats_ctx.lock);
 }
 
 /**
- * @brief function to remove inactive clients
- *
- * @remove_clients_with_less_rx_or_tx: if true remove clients which has all rx and tx less than 1024 bytes
- *
- * @return true if atleast one client was removed successful
+ * nss_dscpstats_db_remove_inactive_mac()
+ *	remove inactive mac nodes
  */
-static int nss_dscpstats_db_remove_inactive_mac(void)
+static bool nss_dscpstats_db_remove_inactive_mac(void)
 {
 	unsigned int index;
-	struct nss_dscpstats_mac_node *current_node;
+	struct nss_dscpstats_mac_node *mac_node;
 	struct nss_dscpstats_dscp_node *dscp_node;
 	struct hlist_node *tmp;
 	int free_mac = 1;
 
 	spin_lock(&nss_dscpstats_ctx.lock);
 	for (index = 0; index < nss_dscpstats_ctx.hash_size; index++) {
-		hlist_for_each_entry_safe(current_node, tmp, &nss_dscpstats_ctx.mac_hash_table[index], mac_node) {
+		hlist_for_each_entry_safe(mac_node, tmp, &nss_dscpstats_ctx.mac_hash_table[index], mac_node) {
 			free_mac = 1;
-			hlist_for_each_entry(dscp_node, &current_node->dscp_list, dscp_node) {
+			hlist_for_each_entry(dscp_node, &mac_node->dscp_list, dscp_node) {
 				if ((atomic64_read(&dscp_node->txBytes) != 0) || (atomic64_read(&dscp_node->rxBytes) != 0)) {
 					free_mac = 0;
 					break;
@@ -347,7 +321,7 @@ static int nss_dscpstats_db_remove_inactive_mac(void)
 			}
 
 			if (free_mac) {
-				nss_dscpstats_db_remove_mac_node(current_node);
+				nss_dscpstats_db_remove_mac_node(mac_node);
 				spin_unlock(&nss_dscpstats_ctx.lock);
 				return true;
 			}
@@ -358,33 +332,22 @@ static int nss_dscpstats_db_remove_inactive_mac(void)
 }
 
 /**
- * @brief function to store tx rx bytes count
- *
- * @tx_dscp: tx_dscp value for which tx_bytes to be updated
- *
- * @tx_dscp: rx_dscp value for which rx_bytes to be updated
- *
- * @mac: mac address of client to be updated
- *
- * @tx_bytes: tx_bytes to be updated
- *
- * @rx_bytes: rx_bytes to be updated
- *
- * @return Success code on successfull update else return error code
+ * nss_dscpstats_db_count_store()
+ *	update tx rx bytes count of client
  */
 static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint8_t rx_dscp, uint64_t mac,
-							     uint32_t tx_bytes, uint32_t rx_bytes)
+								uint32_t tx_bytes, uint32_t rx_bytes)
 {
 	unsigned int index = nss_dscpstats_db_generate_hash_index(mac);
-	struct nss_dscpstats_mac_node *current_node;
+	struct nss_dscpstats_mac_node *mac_node;
 	struct nss_dscpstats_dscp_node *dscp_node;
 	bool tx_dscp_found = false;
 	bool rx_dscp_found = false;
 
 	spin_lock(&nss_dscpstats_ctx.lock);
-	hlist_for_each_entry(current_node, &nss_dscpstats_ctx.mac_hash_table[index], mac_node) {
-		if (current_node->mac_addr == mac) {
-			hlist_for_each_entry(dscp_node, &current_node->dscp_list, dscp_node) {
+	hlist_for_each_entry(mac_node, &nss_dscpstats_ctx.mac_hash_table[index], mac_node) {
+		if (mac_node->mac_addr == mac) {
+			hlist_for_each_entry(dscp_node, &mac_node->dscp_list, dscp_node) {
 					if (dscp_node->dscp == tx_dscp) {
 						atomic64_add(tx_bytes, &dscp_node->txBytes);
 						tx_dscp_found = true;
@@ -406,7 +369,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 	}
 	spin_unlock(&nss_dscpstats_ctx.lock);
 
-	if (current_node != NULL) {
+	if (mac_node != NULL) {
 		if (tx_dscp == rx_dscp) {
 			dscp_node = nss_dscpstats_db_create_dscp_node(tx_dscp);
 			if (!dscp_node) {
@@ -416,7 +379,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 			atomic64_add(tx_bytes, &dscp_node->txBytes);
 			atomic64_add(rx_bytes, &dscp_node->rxBytes);
 			spin_lock(&nss_dscpstats_ctx.lock);
-			hlist_add_head(&dscp_node->dscp_node, &current_node->dscp_list);
+			hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 			spin_unlock(&nss_dscpstats_ctx.lock);
 			return DSCP_STATS_RET_SUCCESS;
 		}
@@ -429,7 +392,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 
 			atomic64_add(tx_bytes, &dscp_node->txBytes);
 			spin_lock(&nss_dscpstats_ctx.lock);
-			hlist_add_head(&dscp_node->dscp_node, &current_node->dscp_list);
+			hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 			spin_unlock(&nss_dscpstats_ctx.lock);
 		}
 
@@ -440,7 +403,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 			}
 			atomic64_add(rx_bytes, &dscp_node->rxBytes);
 			spin_lock(&nss_dscpstats_ctx.lock);
-			hlist_add_head(&dscp_node->dscp_node, &current_node->dscp_list);
+			hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 			spin_unlock(&nss_dscpstats_ctx.lock);
 		}
 
@@ -456,13 +419,13 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 		}
 	}
 
-	current_node = nss_dscpstats_db_create_mac_node(mac);
-	if (!current_node) {
+	mac_node = nss_dscpstats_db_create_mac_node(mac);
+	if (!mac_node) {
 		nss_dscpstats_warn("Could not create new client node %pM\n", (uint8_t *)(&mac));
 		return DSCP_STATS_RET_ENABLE_FAIL_OOM;
 	}
 	spin_lock(&nss_dscpstats_ctx.lock);
-	hlist_add_head(&current_node->mac_node, &nss_dscpstats_ctx.mac_hash_table[index]);
+	hlist_add_head(&mac_node->mac_node, &nss_dscpstats_ctx.mac_hash_table[index]);
 	spin_unlock(&nss_dscpstats_ctx.lock);
 
 	if (tx_dscp == rx_dscp) {
@@ -473,7 +436,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 		atomic64_add(tx_bytes, &dscp_node->txBytes);
 		atomic64_add(rx_bytes, &dscp_node->rxBytes);
 		spin_lock(&nss_dscpstats_ctx.lock);
-		hlist_add_head(&dscp_node->dscp_node, &current_node->dscp_list);
+		hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 		spin_unlock(&nss_dscpstats_ctx.lock);
 		return DSCP_STATS_RET_SUCCESS;
 	}
@@ -484,7 +447,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 	}
 	atomic64_add(tx_bytes, &dscp_node->txBytes);
 	spin_lock(&nss_dscpstats_ctx.lock);
-	hlist_add_head(&dscp_node->dscp_node, &current_node->dscp_list);
+	hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 	spin_unlock(&nss_dscpstats_ctx.lock);
 
 	dscp_node = nss_dscpstats_db_create_dscp_node(rx_dscp);
@@ -493,7 +456,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 	}
 	atomic64_add(rx_bytes, &dscp_node->rxBytes);
 	spin_lock(&nss_dscpstats_ctx.lock);
-	hlist_add_head(&dscp_node->dscp_node, &current_node->dscp_list);
+	hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 	spin_unlock(&nss_dscpstats_ctx.lock);
 
 	return DSCP_STATS_RET_SUCCESS;
@@ -569,8 +532,6 @@ void nss_dscpstats_db_stats_process(struct net_device *from_dev, struct net_devi
 	if (real_tx_bytes || real_rx_bytes) {
 		nss_dscpstats_db_count_store(real_tx_dscp, real_rx_dscp, real_smac, real_tx_bytes, real_rx_bytes);
 	}
-
-
 }
 
 /**
@@ -605,7 +566,8 @@ uint32_t nss_dscpstats_db_init_table(void)
 }
 
 /**
- * @brief function to free hashtable memory
+ * nss_dscpstats_db_free_table()
+ *	free the memory assigned to hash table
  */
 void nss_dscpstats_db_free_table(void)
 {

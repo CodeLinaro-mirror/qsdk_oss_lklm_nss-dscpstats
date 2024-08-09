@@ -21,6 +21,7 @@
 #include <linux/atomic.h>
 #include <linux/vmalloc.h>
 #include <linux/netdevice.h>
+#include <linux/debugfs.h>
 
 #include "nss_dscpstats.h"
 #include "nss_dscpstats_nl.h"
@@ -97,6 +98,16 @@ static void nss_dscpstats_db_remove_mac_node(struct nss_dscpstats_mac_node *curr
 }
 
 /**
+ * nss_dscpstats_db_delete_wan_node()
+ *	delete for dev from WAN list.
+ */
+static void nss_dscpstats_db_delete_wan_node(struct nss_dscpstats_wanif *wan_if_node)
+{
+	hlist_del(&wan_if_node->wan_node);
+	kfree(wan_if_node);
+}
+
+/**
  * @brief function to create a new mac node
  *
  * @mac_address: mac_address of the mac node to be created
@@ -134,6 +145,22 @@ static struct nss_dscpstats_wanif *nss_dscpstats_db_wan_node_get(uint8_t *dev_na
 	}
 
 	return NULL;
+}
+
+/**
+ * nss_dscpstats_db_wan_node_get()
+ *	Remove all the wan nodes from list
+ */
+static void nss_dscpstats_db_wan_node_remove_all(void)
+{
+	struct nss_dscpstats_wanif *wan_if_node;
+	struct hlist_node *tmp;
+
+	spin_lock(&nss_dscpstats_ctx.lock);
+	hlist_for_each_entry_safe(wan_if_node, tmp, &nss_dscpstats_ctx.wan_list, wan_node) {
+		nss_dscpstats_db_delete_wan_node(wan_if_node);
+	}
+	spin_unlock(&nss_dscpstats_ctx.lock);
 }
 
 /**
@@ -227,8 +254,7 @@ enum nss_dscpstats_ret nss_dscpstats_db_disable_dscp(uint64_t dscp_mask, uint8_t
 	dscp_mask = dscp_mask & wan_if_node->dscp_mask;
 	wan_if_node->dscp_mask = wan_if_node->dscp_mask ^ dscp_mask;
 	if (!wan_if_node->dscp_mask) {
-		hlist_del(&wan_if_node->wan_node);
-		kfree(wan_if_node);
+		nss_dscpstats_db_delete_wan_node(wan_if_node);
 	}
 
 	/*
@@ -583,7 +609,23 @@ uint32_t nss_dscpstats_db_init_table(void)
  */
 void nss_dscpstats_db_free_table(void)
 {
+	nss_dscpstats_db_wan_node_remove_all();
 	nss_dscpstats_db_reset();
 	vfree(nss_dscpstats_ctx.mac_hash_table);
 	nss_dscpstats_ctx.mac_hash_table = NULL;
+}
+
+/**
+ * nss_dscpstats_db_stop()
+ *	stop the statistics update
+ */
+void nss_dscpstats_db_stop(void)
+{
+	struct ecm_classifier_dscp_stats_registrant r;
+	/*
+	 * unregister callback
+	 */
+	r.cb = nss_dscpstats_db_stats_process;
+	r.this_module = THIS_MODULE;
+	ecm_classifier_dscp_stats_unregister(&r);
 }

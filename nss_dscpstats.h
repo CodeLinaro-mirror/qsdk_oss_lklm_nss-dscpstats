@@ -96,6 +96,8 @@ struct nss_dscpstats_mac_node {
 struct nss_dscpstats {
 	uint32_t hash_size;				/* size of the hash table */
 	spinlock_t lock;				/* spin lock */
+	struct dentry *dentry;			/* base debugfs */
+	struct dentry *conf_dentry;		/* configuration debugfs */
 	struct hlist_head wan_list;			/* wan interface list */
 	struct hlist_head *mac_hash_table;		/* hash table to store client mac node */
 };
@@ -125,4 +127,5 @@ void nss_dscpstats_db_free_table(void);
 void nss_dscpstats_db_stats_process(struct net_device *from_dev, struct net_device *to_dev, uint8_t *smac,
 		uint8_t *dmac, uint8_t dscp_marked, uint8_t flow_mark, uint8_t reply_mark, uint8_t flow_dscp,
 		uint8_t reply_dscp, uint32_t tx_bytes, uint32_t rx_bytes, bool is_ipv6);
+void nss_dscpstats_db_stop(void);
 #endif /* __NSSSTATDSCP__H */

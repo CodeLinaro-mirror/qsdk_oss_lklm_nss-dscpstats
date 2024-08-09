@@ -74,8 +74,8 @@ struct nss_dscpstats_wanif {
  */
 struct nss_dscpstats_dscp_node {
 	uint32_t dscp;					/* dscp value of the dscp node */
-	atomic64_t rxBytes;				/* rx bytes of dscp node */
-	atomic64_t txBytes;				/* tx bytes of dscp node */
+	uint64_t rxBytes;				/* rx bytes of dscp node */
+	uint64_t txBytes;				/* tx bytes of dscp node */
 	struct hlist_node dscp_node;			/* hlist node to store next dscp node */
 };
 

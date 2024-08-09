@@ -314,7 +314,7 @@ static bool nss_dscpstats_db_remove_inactive_mac(void)
 		hlist_for_each_entry_safe(mac_node, tmp, &nss_dscpstats_ctx.mac_hash_table[index], mac_node) {
 			free_mac = 1;
 			hlist_for_each_entry(dscp_node, &mac_node->dscp_list, dscp_node) {
-				if ((atomic64_read(&dscp_node->txBytes) != 0) || (atomic64_read(&dscp_node->rxBytes) != 0)) {
+				if (dscp_node->txBytes != 0 || dscp_node->rxBytes != 0) {
 					free_mac = 0;
 					break;
 				}
@@ -349,12 +349,12 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 		if (mac_node->mac_addr == mac) {
 			hlist_for_each_entry(dscp_node, &mac_node->dscp_list, dscp_node) {
 					if (dscp_node->dscp == tx_dscp) {
-						atomic64_add(tx_bytes, &dscp_node->txBytes);
+						dscp_node->txBytes += tx_bytes;
 						tx_dscp_found = true;
 					}
 
 					if (dscp_node->dscp == rx_dscp) {
-						atomic64_add(rx_bytes, &dscp_node->rxBytes);
+						dscp_node->rxBytes += rx_bytes;
 						rx_dscp_found = true;
 					}
 			}
@@ -376,8 +376,8 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 				return DSCP_STATS_RET_FAIL;
 			}
 
-			atomic64_add(tx_bytes, &dscp_node->txBytes);
-			atomic64_add(rx_bytes, &dscp_node->rxBytes);
+			dscp_node->txBytes += tx_bytes;
+			dscp_node->rxBytes += rx_bytes;
 			spin_lock(&nss_dscpstats_ctx.lock);
 			hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 			spin_unlock(&nss_dscpstats_ctx.lock);
@@ -390,7 +390,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 				return DSCP_STATS_RET_FAIL;
 			}
 
-			atomic64_add(tx_bytes, &dscp_node->txBytes);
+			dscp_node->txBytes += tx_bytes;
 			spin_lock(&nss_dscpstats_ctx.lock);
 			hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 			spin_unlock(&nss_dscpstats_ctx.lock);
@@ -401,7 +401,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 			if (!dscp_node) {
 				return DSCP_STATS_RET_FAIL;
 			}
-			atomic64_add(rx_bytes, &dscp_node->rxBytes);
+			dscp_node->rxBytes += rx_bytes;
 			spin_lock(&nss_dscpstats_ctx.lock);
 			hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 			spin_unlock(&nss_dscpstats_ctx.lock);
@@ -433,8 +433,8 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 		if (!dscp_node) {
 			return DSCP_STATS_RET_FAIL;
 		}
-		atomic64_add(tx_bytes, &dscp_node->txBytes);
-		atomic64_add(rx_bytes, &dscp_node->rxBytes);
+		dscp_node->txBytes += tx_bytes;
+		dscp_node->rxBytes += rx_bytes;
 		spin_lock(&nss_dscpstats_ctx.lock);
 		hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 		spin_unlock(&nss_dscpstats_ctx.lock);
@@ -445,7 +445,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 	if (!dscp_node) {
 		return DSCP_STATS_RET_FAIL;
 	}
-	atomic64_add(tx_bytes, &dscp_node->txBytes);
+	dscp_node->txBytes += tx_bytes;
 	spin_lock(&nss_dscpstats_ctx.lock);
 	hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 	spin_unlock(&nss_dscpstats_ctx.lock);
@@ -454,7 +454,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 	if (!dscp_node) {
 		return DSCP_STATS_RET_FAIL;
 	}
-	atomic64_add(rx_bytes, &dscp_node->rxBytes);
+	dscp_node->rxBytes += rx_bytes;
 	spin_lock(&nss_dscpstats_ctx.lock);
 	hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 	spin_unlock(&nss_dscpstats_ctx.lock);

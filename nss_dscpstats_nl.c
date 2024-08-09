@@ -203,8 +203,8 @@ static int nss_dscpstats_nl_ops_read_dump(struct sk_buff *skb, struct netlink_ca
 					continue;
 				}
 				read_ctx->dscp_obj = NULL;
-				rx_bytes = atomic64_read(&dscp_obj->rxBytes);
-				tx_bytes = atomic64_read(&dscp_obj->txBytes);
+				rx_bytes = dscp_obj->rxBytes;
+				tx_bytes = dscp_obj->txBytes;
 				if (tx_bytes || rx_bytes) {
 					if (read_stats->num_clients < num_entry) {
 						client = &read_stats->clients[read_stats->num_clients];
@@ -214,8 +214,8 @@ static int nss_dscpstats_nl_ops_read_dump(struct sk_buff *skb, struct netlink_ca
 						memcpy(client->mac, &mac_obj->mac_addr, 6);
 						read_stats->num_clients += 1;
 
-						atomic64_sub(rx_bytes, &dscp_obj->rxBytes);
-						atomic64_sub(tx_bytes, &dscp_obj->txBytes);
+						dscp_obj->rxBytes -= rx_bytes;
+						dscp_obj->txBytes -= tx_bytes;
 						continue;
 					}
 

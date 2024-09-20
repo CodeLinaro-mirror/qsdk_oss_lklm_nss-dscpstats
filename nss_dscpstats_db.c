@@ -168,7 +168,8 @@ enum nss_dscpstats_ret nss_dscpstats_db_enable_dscp(uint64_t dscp_mask, uint8_t 
 	register_cb = hlist_empty(&nss_dscpstats_ctx.wan_list);
 
 	spin_lock(&nss_dscpstats_ctx.lock);
-	if (nss_dscpstats_db_wan_node_get(wan_if_node->dev_name) != NULL) {
+	wan_if_node = nss_dscpstats_db_wan_node_get(dev_name);
+	if (wan_if_node != NULL) {
 		wan_if_node->dscp_mask = wan_if_node->dscp_mask | dscp_mask;
 		spin_unlock(&nss_dscpstats_ctx.lock);
 		return DSCP_STATS_RET_SUCCESS;

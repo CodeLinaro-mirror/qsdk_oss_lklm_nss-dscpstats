@@ -60,7 +60,7 @@
 
 /**
  * nss_dscpstats_wanif
- *      NSS DSCPSTATS strcture to WAN interface
+ *	NSS DSCPSTATS strcture to WAN interface
  */
 struct nss_dscpstats_wanif {
 	struct hlist_node wan_node;			/* hlist node to store next wan node */
@@ -70,18 +70,20 @@ struct nss_dscpstats_wanif {
 
 /**
  * nss_dscpstats_dscp_node
- *      NSS DSCPSTATS strcture to represent tx and rx bytes of a dscp value
+ *	NSS DSCPSTATS strcture to represent tx and rx bytes of a dscp value
  */
 struct nss_dscpstats_dscp_node {
 	uint32_t dscp;					/* dscp value of the dscp node */
 	uint64_t rxBytes;				/* rx bytes of dscp node */
 	uint64_t txBytes;				/* tx bytes of dscp node */
+	uint64_t total_rxBytes;				/* total rx bytes of dscp node */
+	uint64_t total_txBytes;				/* total tx bytes of dscp node */
 	struct hlist_node dscp_node;			/* hlist node to store next dscp node */
 };
 
 /**
  * nss_dscpstats_mac_node
- *      NSS DSCPSTATS strcture to represent dscp data of a client
+ *	NSS DSCPSTATS strcture to represent dscp data of a client
  */
 struct nss_dscpstats_mac_node {
 	uint64_t mac_addr;				/* mac address of the client */
@@ -90,21 +92,47 @@ struct nss_dscpstats_mac_node {
 };
 
 /**
+ * nss_dscpstats_common_stats
+ *	NSS DSCPSTATS strcture to represent general statistics
+ */
+struct nss_dscpstats_common_stats {
+	uint32_t tot_mac_add;		/* Total number of mac node added */
+	uint32_t tot_mac_del;		/* Total number of mac node added */
+	uint32_t mac_node_add_fail;	/* Total number of mac node addition failed */
+	uint32_t tot_read_req;		/* Total number of times userspace read the statistics */
+	atomic_t tot_act_mac;		/* Total number of active mac node */
+};
+
+/**
  * nss_dscpstats
- *      NSS DSCPSTATS strcture to represent storage data
+ *	NSS DSCPSTATS strcture to represent storage data
  */
 struct nss_dscpstats {
 	uint32_t hash_size;				/* size of the hash table */
 	spinlock_t lock;				/* spin lock */
 	struct dentry *dentry;			/* base debugfs */
 	struct dentry *conf_dentry;		/* configuration debugfs */
+	struct dentry *stats_dentry;		/* statistics debugfs */
 	struct hlist_head wan_list;			/* wan interface list */
 	struct hlist_head *mac_hash_table;		/* hash table to store client mac node */
+	struct nss_dscpstats_common_stats common_stats;	/* common statistics */
+};
+
+/**
+ * nss_dscpstats_dbg_read_ctx
+ *	Store the current read context to be used in next call.
+ */
+struct nss_dscpstats_dbg_read_ctx {
+	uint32_t hash_index;	/* hash index */
+	bool read_done;		/* completed reading entire table*/
+	bool mac_addr_written;	/* Mac address written to buffer */
+	struct nss_dscpstats_mac_node *mac_obj;		/* mac node */
+	struct nss_dscpstats_dscp_node *dscp_obj;	/* dscp  node */
 };
 
 /**
  * nss_dscpstats_ret
- *      dscp stats return code
+ *	dscp stats return code
  */
 enum nss_dscpstats_ret {
 	DSCP_STATS_RET_SUCCESS = 0,			/* Success */

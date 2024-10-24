@@ -29,7 +29,6 @@
 
 struct nss_dscpstats nss_dscpstats_ctx;
 uint32_t num_clients;
-static atomic_t current_clients_count;
 
 /**
  * nss_dscpstats_db_generate_hash_index()
@@ -83,7 +82,8 @@ static void nss_dscpstats_db_remove_mac_node(struct nss_dscpstats_mac_node *mac_
 
 	hlist_del(&mac_node->mac_node);
 	kfree(mac_node);
-	atomic_dec(&current_clients_count);
+	atomic_dec(&nss_dscpstats_ctx.common_stats.tot_act_mac);
+	nss_dscpstats_ctx.common_stats.tot_mac_del++;
 }
 
 /**
@@ -112,7 +112,8 @@ static struct nss_dscpstats_mac_node *nss_dscpstats_db_create_mac_node(uint64_t 
 	new_node->mac_addr = mac;
 	INIT_HLIST_HEAD(&new_node->dscp_list);
 	INIT_HLIST_NODE(&new_node->mac_node);
-	atomic_inc(&current_clients_count);
+	atomic_inc(&nss_dscpstats_ctx.common_stats.tot_act_mac);
+	nss_dscpstats_ctx.common_stats.tot_mac_add++;
 	return new_node;
 }
 
@@ -351,11 +352,13 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 			hlist_for_each_entry(dscp_node, &mac_node->dscp_list, dscp_node) {
 					if (dscp_node->dscp == tx_dscp) {
 						dscp_node->txBytes += tx_bytes;
+						dscp_node->total_txBytes += tx_bytes;
 						tx_dscp_found = true;
 					}
 
 					if (dscp_node->dscp == rx_dscp) {
 						dscp_node->rxBytes += rx_bytes;
+						dscp_node->total_rxBytes += rx_bytes;
 						rx_dscp_found = true;
 					}
 			}
@@ -378,7 +381,9 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 			}
 
 			dscp_node->txBytes += tx_bytes;
+			dscp_node->total_txBytes += tx_bytes;
 			dscp_node->rxBytes += rx_bytes;
+			dscp_node->total_rxBytes += rx_bytes;
 			spin_lock(&nss_dscpstats_ctx.lock);
 			hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 			spin_unlock(&nss_dscpstats_ctx.lock);
@@ -392,6 +397,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 			}
 
 			dscp_node->txBytes += tx_bytes;
+			dscp_node->total_txBytes += tx_bytes;
 			spin_lock(&nss_dscpstats_ctx.lock);
 			hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 			spin_unlock(&nss_dscpstats_ctx.lock);
@@ -403,6 +409,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 				return DSCP_STATS_RET_FAIL;
 			}
 			dscp_node->rxBytes += rx_bytes;
+			dscp_node->total_rxBytes += rx_bytes;
 			spin_lock(&nss_dscpstats_ctx.lock);
 			hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 			spin_unlock(&nss_dscpstats_ctx.lock);
@@ -411,11 +418,12 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 		return DSCP_STATS_RET_SUCCESS;
 	}
 
-	if (atomic_read(&current_clients_count) >= num_clients) {
+	if (atomic_read(&nss_dscpstats_ctx.common_stats.tot_act_mac) >= num_clients) {
 		nss_dscpstats_warn("max client limit has reached, try removing inactive clients\n");
 
 		if (!nss_dscpstats_db_remove_inactive_mac()) {
 			nss_dscpstats_warn("No inactive clients found, could not create client %pM\n", (uint8_t *)(&mac));
+			nss_dscpstats_ctx.common_stats.mac_node_add_fail++;
 			return DSCP_STATS_RET_ENABLE_FAIL_MAX_CLIENT_LIMIT;
 		}
 	}
@@ -435,7 +443,9 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 			return DSCP_STATS_RET_FAIL;
 		}
 		dscp_node->txBytes += tx_bytes;
+		dscp_node->total_txBytes += tx_bytes;
 		dscp_node->rxBytes += rx_bytes;
+		dscp_node->total_rxBytes += rx_bytes;
 		spin_lock(&nss_dscpstats_ctx.lock);
 		hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 		spin_unlock(&nss_dscpstats_ctx.lock);
@@ -447,6 +457,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 		return DSCP_STATS_RET_FAIL;
 	}
 	dscp_node->txBytes += tx_bytes;
+	dscp_node->total_txBytes += tx_bytes;
 	spin_lock(&nss_dscpstats_ctx.lock);
 	hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 	spin_unlock(&nss_dscpstats_ctx.lock);
@@ -456,6 +467,7 @@ static enum nss_dscpstats_ret nss_dscpstats_db_count_store(uint8_t tx_dscp, uint
 		return DSCP_STATS_RET_FAIL;
 	}
 	dscp_node->rxBytes += rx_bytes;
+	dscp_node->total_rxBytes += rx_bytes;
 	spin_lock(&nss_dscpstats_ctx.lock);
 	hlist_add_head(&dscp_node->dscp_node, &mac_node->dscp_list);
 	spin_unlock(&nss_dscpstats_ctx.lock);

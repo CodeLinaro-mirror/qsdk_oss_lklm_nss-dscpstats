@@ -162,7 +162,13 @@ static int nss_dscpstats_nl_ops_read_dump(struct sk_buff *skb, struct netlink_ca
 	int hash_index = 0;
 	int num_entry;
 
-	nss_dscpstats_trace("%s\n", __func__);
+	nss_dscpstats_trace();
+
+	/*
+	 * since this function is called as part of NLM_F_DUMP, it is possible that tot_read_req
+	 * could be incremented multiple times for single read netlink request.
+	 */
+	nss_dscpstats_ctx.common_stats.tot_read_req++;
 
 	read_stats = genlmsg_put(skb, NETLINK_CB(cb->skb).portid,
 					cb->nlh->nlmsg_seq,

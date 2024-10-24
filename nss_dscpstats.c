@@ -51,12 +51,241 @@ static ssize_t nss_dscpstats_stop_ops(struct file *f, const char *buffer, size_t
 }
 
 /*
+ * nss_dscpstats_db_stats_ops()
+ *	Fill mac and dscp values to user buffer.
+ */
+static ssize_t nss_dscpstats_mac_db_stats_read(struct file *f, char *buffer, size_t len, loff_t *offset)
+{
+	struct nss_dscpstats_dbg_read_ctx *read_ctx = (struct nss_dscpstats_dbg_read_ctx *)f->private_data;
+	uint32_t bytes_read = 0;
+	uint32_t hash_index = 0;
+	uint32_t bytes = 0;
+	uint32_t lbuf_size;
+	char *lbuf;
+
+	nss_dscpstats_trace();
+
+	if (read_ctx->read_done) {
+		return 0;
+	}
+
+	lbuf_size = len + 100;
+	lbuf = kmalloc(lbuf_size, GFP_KERNEL);
+	if (!lbuf) {
+		return -ENOMEM;
+	}
+
+	spin_lock(&nss_dscpstats_ctx.lock);
+	for (hash_index = read_ctx->hash_index; hash_index < nss_dscpstats_ctx.hash_size; hash_index++) {
+		struct hlist_head *mac_list = &nss_dscpstats_ctx.mac_hash_table[hash_index];
+		struct nss_dscpstats_mac_node *mac_obj;
+
+		hlist_for_each_entry(mac_obj, mac_list, mac_node) {
+			struct hlist_head *dscp_list = &mac_obj->dscp_list;
+			struct nss_dscpstats_dscp_node *dscp_obj;
+
+			/*
+			 * In very rare scenario it is possible that previously stored mac node could be deleted.
+			 * In that case this function will return bytes_read as zero and the read will end. the user
+			 * is expected to read again.
+			 */
+			if (read_ctx->mac_obj && (read_ctx->mac_obj != mac_obj)) {
+				continue;
+			}
+			read_ctx->mac_obj = NULL;
+
+			if (!read_ctx->mac_addr_written) {
+				bytes = snprintf(lbuf + bytes_read, lbuf_size - bytes_read, "  MAC : %pM\n", &mac_obj->mac_addr);
+				if ((bytes_read + bytes) > len) {
+					spin_unlock(&nss_dscpstats_ctx.lock);
+
+					if (copy_to_user(buffer, lbuf, bytes_read)) {
+						kfree(lbuf);
+						return -EFAULT;
+					}
+
+					read_ctx->mac_obj = mac_obj;
+					read_ctx->hash_index = hash_index;
+					kfree(lbuf);
+					return bytes_read;
+				}
+
+				bytes_read += bytes;
+				read_ctx->mac_addr_written = true;
+			}
+
+			hlist_for_each_entry(dscp_obj, dscp_list, dscp_node) {
+
+				if (read_ctx->dscp_obj && (read_ctx->dscp_obj != dscp_obj)) {
+					continue;
+				}
+				read_ctx->dscp_obj = NULL;
+
+				bytes = snprintf(lbuf + bytes_read, lbuf_size - bytes_read, "\t  DSCP %u rxBytes 0x%llx txBytes 0x%llx\n", dscp_obj->dscp,
+								 dscp_obj->total_rxBytes, dscp_obj->total_txBytes);
+				if ((bytes_read + bytes) > len) {
+					spin_unlock(&nss_dscpstats_ctx.lock);
+
+					if (copy_to_user(buffer, lbuf, bytes_read)) {
+						kfree(lbuf);
+						return -EFAULT;
+					}
+
+					read_ctx->dscp_obj = dscp_obj;
+					read_ctx->mac_obj = mac_obj;
+					read_ctx->hash_index = hash_index;
+					kfree(lbuf);
+					return bytes_read;
+				}
+				bytes_read += bytes;
+			}
+
+			read_ctx->mac_addr_written = false;
+		}
+	}
+	spin_unlock(&nss_dscpstats_ctx.lock);
+
+	if (copy_to_user(buffer, lbuf, bytes_read)) {
+		kfree(lbuf);
+		return -EFAULT;
+	}
+	read_ctx->read_done = true;
+	kfree(lbuf);
+	return bytes_read;
+}
+
+/*
+ * nss_dscpstats_mac_db_stats_open()
+ *	Allocate memory for read context.
+ */
+static int nss_dscpstats_mac_db_stats_open(struct inode *inode, struct file *file)
+{
+	struct nss_dscpstats_dbg_read_ctx *ws;
+
+	ws = kzalloc(sizeof(struct nss_dscpstats_dbg_read_ctx), GFP_KERNEL);
+	if (!ws) {
+		return -ENOMEM;
+	}
+
+	file->private_data = ws;
+
+	return 0;
+}
+
+/*
+ * nss_dscpstats_mac_db_stats_release()
+ *	Free memory allocated for read context.
+ */
+static int nss_dscpstats_mac_db_stats_release(struct inode *inode, struct file *file)
+{
+	struct nss_dscpstats_dbg_read_ctx *ws;
+
+	ws = (struct nss_dscpstats_dbg_read_ctx *)file->private_data;
+	kfree(ws);
+	file->private_data = NULL;
+
+	return 0;
+}
+
+/*
+ * nss_dscpstats_wan_if_stats_read()
+ *	Fill WAN interface and its dscp bitfields to user buffer.
+ */
+static ssize_t nss_dscpstats_wan_if_stats_read(struct file *f, char *buffer, size_t len, loff_t *offset)
+{
+	struct nss_dscpstats_wanif *wan_if_node;
+	int bytes_read = 0;
+	int lbuf_size;
+	int cur_read;
+	char *lbuf;
+	int ret;
+
+	lbuf_size = len + 100;
+	lbuf = kmalloc(lbuf_size, GFP_KERNEL);
+	if (!lbuf) {
+		return -ENOMEM;
+	}
+
+	spin_lock(&nss_dscpstats_ctx.lock);
+	hlist_for_each_entry(wan_if_node, &nss_dscpstats_ctx.wan_list, wan_node) {
+		cur_read = snprintf(lbuf + bytes_read, lbuf_size - bytes_read, "\t%s : DSCP bitfield 0x%llx\n",
+							wan_if_node->dev_name, wan_if_node->dscp_mask);
+		if ((bytes_read + cur_read) > len) {
+			goto out;
+		}
+		bytes_read += cur_read;
+	}
+
+out:
+	spin_unlock(&nss_dscpstats_ctx.lock);
+	ret = simple_read_from_buffer(buffer, len, offset, lbuf, bytes_read);
+	kfree(lbuf);
+
+	return ret;
+}
+
+/*
+ * nss_dscpstats_common_stats_read()
+ *	Fill general statistics to user buffer.
+ */
+static ssize_t nss_dscpstats_common_stats_read(struct file *f, char *buffer, size_t len, loff_t *offset)
+{
+	int bytes_read;
+	char *lbuf;
+	int ret;
+
+	lbuf = kmalloc(len, GFP_KERNEL);
+	if (!lbuf) {
+		return -ENOMEM;
+	}
+
+	spin_lock(&nss_dscpstats_ctx.lock);
+	bytes_read = snprintf(lbuf, len,
+		"\tTotal MAC add : %u\n\tTotal MAC del : %u\n\tTotal MAC add failure : %u\n\tTotal stats read request : %u\n\tActive MAC : %u\n",
+		nss_dscpstats_ctx.common_stats.tot_mac_add, nss_dscpstats_ctx.common_stats.tot_mac_del,
+		nss_dscpstats_ctx.common_stats.mac_node_add_fail, nss_dscpstats_ctx.common_stats.tot_read_req,
+		atomic_read(&nss_dscpstats_ctx.common_stats.tot_act_mac));
+	spin_unlock(&nss_dscpstats_ctx.lock);
+	ret = simple_read_from_buffer(buffer, len, offset, lbuf, bytes_read);
+	kfree(lbuf);
+
+	return ret;
+}
+
+/*
  * nss_dscpstats_stop_file_ops
  *	File operations for stopping the statistics update.
  */
 const struct file_operations nss_dscpstats_stop_file_ops = {
 	.owner = THIS_MODULE,
 	.write = nss_dscpstats_stop_ops,
+};
+
+/*
+ * nss_dscpstats_mac_db_file_ops
+ *	file operations for reading the MAC database statistics.
+ */
+const struct file_operations nss_dscpstats_mac_db_file_ops = {
+	.owner = THIS_MODULE,
+	.open = nss_dscpstats_mac_db_stats_open,
+	.read = nss_dscpstats_mac_db_stats_read,
+	.release = nss_dscpstats_mac_db_stats_release,
+};
+
+/*
+ * nss_dscpstats_wan_if_stats_file_ops
+ *	file operations for reading the traffic count enabled WAN interfaces.
+ */
+const struct file_operations nss_dscpstats_wan_if_stats_file_ops = {
+	.read = nss_dscpstats_wan_if_stats_read,
+};
+
+/*
+ * nss_dscpstats_common_stats_file_ops
+ *	file operations for reading the general statistics.
+ */
+const struct file_operations nss_dscpstats_common_stats_file_ops = {
+	.read = nss_dscpstats_common_stats_read,
 };
 
 /*
@@ -79,6 +308,30 @@ static bool nss_dscpstats_create_debugfs(void) {
 	if (!debugfs_create_file("stop", 0200, nss_dscpstats_ctx.conf_dentry,
 					NULL, &nss_dscpstats_stop_file_ops)) {
 		nss_dscpstats_warn("Unable to create flush file in debugfs\n");
+		goto debugfs_dir_failed;
+	}
+
+	nss_dscpstats_ctx.stats_dentry = debugfs_create_dir("stats", nss_dscpstats_ctx.dentry);
+	if (nss_dscpstats_ctx.stats_dentry == NULL) {
+		nss_dscpstats_warn("Unable to create statistics directory in debugfs\n");
+		goto debugfs_dir_failed;
+	}
+
+	if (!debugfs_create_file("dscpstats", 0400, nss_dscpstats_ctx.stats_dentry,
+					NULL, &nss_dscpstats_mac_db_file_ops)) {
+		nss_dscpstats_warn("Unable to create traffic file in debugfs\n");
+		goto debugfs_dir_failed;
+	}
+
+	if (!debugfs_create_file("wan_enabled", 0400, nss_dscpstats_ctx.stats_dentry,
+					NULL, &nss_dscpstats_wan_if_stats_file_ops)) {
+		nss_dscpstats_warn("Unable to create wan_if file in debugfs\n");
+		goto debugfs_dir_failed;
+	}
+
+	if (!debugfs_create_file("common_stats", 0400, nss_dscpstats_ctx.stats_dentry,
+					NULL, &nss_dscpstats_common_stats_file_ops)) {
+		nss_dscpstats_warn("Unable to create common_stats file in debugfs\n");
 		goto debugfs_dir_failed;
 	}
 

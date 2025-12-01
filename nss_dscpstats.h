@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,6 +20,8 @@
 #ifndef __NSSSTATDSCP__H
 #define __NSSSTATDSCP__H
 
+#include <linux/netdevice.h>
+
 #if defined(CONFIG_DYNAMIC_DEBUG)
 /*
  * If dynamic debug is enabled, use pr_debug.
@@ -32,19 +34,19 @@
 /*
  * Statically compile messages at different levels, when dynamic debug is disabled.
  */
-#if (nss_dscpstats_DEBUG_LEVEL < 2)
+#if (NSS_DSCPSTATS_DEBUG_LEVEL < 2)
 #define nss_dscpstats_warn(s, ...)
 #else
 #define nss_dscpstats_warn(s, ...) pr_warn("%s[%d]:" s, __func__, __LINE__, ##__VA_ARGS__)
 #endif
 
-#if (nss_dscpstats_DEBUG_LEVEL < 3)
+#if (NSS_DSCPSTATS_DEBUG_LEVEL < 3)
 #define nss_dscpstats_info(s, ...)
 #else
 #define nss_dscpstats_info(s, ...) pr_notice("%s[%d]:" s, __func__, __LINE__, ##__VA_ARGS__)
 #endif
 
-#if (nss_dscpstats_DEBUG_LEVEL < 4)
+#if (NSS_DSCPSTATS_DEBUG_LEVEL < 4)
 #define nss_dscpstats_trace(s, ...)
 #else
 #define nss_dscpstats_trace(s, ...) pr_info("%s[%d]:" s, __func__, __LINE__, ##__VA_ARGS__)
